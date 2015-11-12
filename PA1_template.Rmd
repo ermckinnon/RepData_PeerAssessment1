@@ -1,5 +1,7 @@
 ---
 title: "Reproducible Research: Peer Assessment 1"
+author: "E McKinnon"
+date: "November 2015"
 output: 
   html_document:
     keep_md: true
@@ -7,19 +9,151 @@ output:
 
 
 ## Loading and preprocessing the data
+The raw data is loaded from the working directory and unzipped. Missing values are accounted for
+using the string "NA". The date variable is converted into the date class in R.
+```{r processing}
+library(xtable)
+library(lattice)
+options(scipen=999) #supress exponential notation for numbers
+data <- read.csv(unz("activity.zip", "activity.csv"),na.strings = "NA")
+activity <- data.frame(steps = data$steps,date = as.Date(data$date),interval=data$interval)
+rm(data)
+```
 
+The data contains 61 days of activity data over the months October and November 2012. The table below shows what the final processed data looks like, ready for analysis.  
 
+### Format of the Processed Data; table showing the first 6 observations
+```{r viewdata}
+head(activity)
+```
 
 ## What is mean total number of steps taken per day?
+We can calculate the total number of steps over the two months and also breakdown the total number of steps per day.
+```{r totalsteps}
+totalsteps <- sum(activity$steps, na.rm = TRUE)
+stepsperday <- data.frame(date = unique(activity$date),
+                  total_steps= tapply(activity$steps,activity$date,sum))
+rownames(stepsperday) <- NULL
+```
 
+So in total there were `r totalsteps` steps over the two months. The next table shows the total number of steps for each day. 
+
+### Total Number of Steps per day
+```{r showtable, results="asis"}
+tab <- xtable(data.frame(totalsteps_per_day = stepsperday$total_steps))
+print(tab,type="html")
+``` 
+  
+The figure below presents a histogram of the total steps per day over the two month period for the days we have data for.  
+
+### A histogram of the total number of steps per day 
+#### The mean number of steps is plotted on the histogram in red
+
+```{r histogram, fig.height=6,fig.width=6}
+mean_steps_perday <- mean(stepsperday$total_steps,na.rm = TRUE)
+median_steps_perday <- median(stepsperday$total_steps,na.rm = TRUE)
+hist(stepsperday$total_steps,breaks=9,
+     main="Histogram of Number of Steps per Day",
+     xlab="Total Steps per Day",
+     ylab="Number of Days",
+     xlim = range(0,25000))
+abline(v=mean_steps_perday,lwd=2,col="Red")
+```
+
+The mean total steps per day over the period is `r round(mean_steps_perday,2)` (to 2 decimal places).  
+The median total steps per day over the period is `r median_steps_perday`. 
 
 
 ## What is the average daily activity pattern?
+```{r timeseries, fig.height=6,fig.width=6}
+stepsperinterval <- data.frame(interval = unique(activity$interval),
+    mean_steps= tapply(activity$steps,activity$interval,mean,na.rm=TRUE))
+row.names(stepsperinterval)<- NULL
+#compute maximum steps and the interval
+max_steps <- subset(stepsperinterval, 
+               mean_steps == sapply(stepsperinterval, max, na.rm = TRUE)[2])
 
+with(data = stepsperinterval, plot(interval,mean_steps,type = "l",lwd=2,
+     main="Steps per interval averaged across all days",
+     xlab="Interval",
+     ylab="Mean Steps per Interval"))
+abline(v=max_steps[1],lwd=1,col="Red")
+
+```
+
+The 5-minute interval, which on average across all the days in the dataset, contains the maximum number of steps is `r max_steps[1]`, and is highlighted in the histogram above with a red line. The average number of steps in this interval across the days was `r round(max_steps[2],2)`.
 
 
 ## Imputing missing values
+```{r missing }
+#Count missing values
+miss <- sum(is.na(activity$steps))
+#merge means for imputation
+activity_imp <- merge(activity,stepsperinterval,by="interval")
 
+activity_imp <- data.frame(activity_imp, impute_steps = activity_imp$steps)
+#replace NAs with means over the entire period
+for (i in 1:nrow(activity_imp)) {
+  if(is.na(activity_imp$steps[i])){
+    activity_imp$impute_steps[i] <- activity_imp$mean_steps[i]
+  }
+}
+
+```
+There are a total of `r miss` missing values in the dataset. We have imputed values for these by taking the average for the same interval over all the days i.e. the data computed for the average daily activity patterns in the previous plot.
+
+### A histogram of the total number of steps per day including imputed data
+#### The new mean number of steps is plotted on the histogram in blue
+
+```{r newmeands, fig.height=6,fig.width=6}
+newstepsperday <- data.frame(date = unique(activity_imp$date),
+                  total_steps= tapply(activity_imp$impute_steps,activity_imp$date,sum))
+rownames(newstepsperday) <- NULL
+
+new_mean_steps_perday <- mean(newstepsperday$total_steps,na.rm = TRUE)
+new_median_steps_perday <- median(newstepsperday$total_steps,na.rm = TRUE)
+hist(newstepsperday$total_steps,breaks=9,
+     main="Histogram of Number of Steps per Day",
+     xlab="Total Steps per Day",
+     ylab="Number of Days",
+     xlim = range(0,25000))
+abline(v=new_mean_steps_perday,lwd=2,col="Blue")
+```
+
+The new mean total steps per day over the period is `r round(new_mean_steps_perday,2)` (to 2 decimal places). This compares to `r round(mean_steps_perday,2)` which was the previous mean without imputed values. The difference is `r round(new_mean_steps_perday - mean_steps_perday,2)`. The mean has not therefore changed using the imputation approach adopted.
+
+The new median total steps per day over the period is `r round(new_median_steps_perday,2)`. This compares to `r median_steps_perday` which was the previous median without imputed values.The difference is `r round(new_median_steps_perday - median_steps_perday ,2)`. The median has increased by around 1 step per day.
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+```{r weekend, fig.height=8,fig.width=10}
+#Create a weekend - weekday factor variable
+activity_imp$day <- weekdays(activity_imp$date)
+for (i in 1:nrow(activity_imp)) {
+  if(activity_imp$day[i] == "Saturday" | activity_imp$day[i] == "Sunday"){
+    activity_imp$fday[i] = "weekend"
+  } else {activity_imp$fday[i] = "weekday"
+}
+}
+activity_imp$fday <- as.factor(activity_imp$fday)
+
+#Calculate weekday and weekend averages for each interval
+
+averagesteps <- aggregate(activity_imp$impute_steps, 
+                list(as.numeric(activity_imp$interval),
+                activity_imp$fday), FUN = "mean")
+names(averagesteps) <- c("interval","weekend", "meansteps")
+
+#Lattice plot for weekend and weekdays
+xyplot(averagesteps$meansteps ~ averagesteps$interval | averagesteps$weekend, 
+       layout = c(1, 2), type = "l", 
+       main = "Activity per interval averaged over weekdays and weekends",
+       xlab = "Interval", 
+       ylab = "Mean steps per interval")
+
+```
+There are differences in activity between weekdays and weekends as can be seen in the charts above. Peak levels of activity are higher on weekdays and levels of activity tends to start earlier and decline earlier compared to weekends. Whereas there are pronounced peaks early and late in the day during weekdays, activity levels tend to be distributed more throughout the days at weekends.
+
+
+
